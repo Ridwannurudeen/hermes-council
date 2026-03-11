@@ -1,0 +1,20 @@
+# hermes-council custom persona configuration
+# Place at ~/.hermes-council/config.yaml or set COUNCIL_CONFIG env var
+
+personas:
+  # Example: add a custom "researcher" persona
+  # researcher:
+  #   tradition: "Systematic literature review"
+  #   system_prompt: |
+  #     You are the Researcher on an adversarial deliberation council.
+  #     Your role is to find and synthesize published evidence...
+  #     You MUST respond in valid JSON with these exact keys:
+  #     {"reasoning": "...", "confidence": 0.0-1.0, "dissent": true/false,
+  #      "key_points": [...], "sources": [...]}
+  #     Do not include any text outside the JSON object.
+  #   scoring_weights:
+  #     evidence: 0.4
+  #     methodology: 0.3
+  #     reproducibility: 0.2
+  #     novelty: 0.1
+  #   tags: ["research", "systematic", "evidence"]

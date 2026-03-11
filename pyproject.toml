@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hermes-council"
+version = "0.1.0"
+description = "Adversarial multi-perspective council MCP server for hermes-agent"
+readme = "README.md"
+requires-python = ">=3.11"
+license = {text = "MIT"}
+dependencies = [
+    "mcp>=1.2.0",
+    "openai>=1.6.0",
+    "pydantic>=2.0",
+    "pyyaml",
+]
+
+[project.optional-dependencies]
+rl = ["openai>=1.6.0", "pyyaml", "pydantic>=2.0"]
+dev = ["pytest", "pytest-asyncio"]
+
+[project.scripts]
+hermes-council-server = "hermes_council.server:main"
+hermes-council = "hermes_council.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
