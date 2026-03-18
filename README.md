@@ -4,6 +4,8 @@ Adversarial multi-perspective council MCP server for [hermes-agent](https://gith
 
 Five personas from distinct intellectual traditions debate questions through structured adversarial deliberation, producing calibrated verdicts with confidence scores, evidence links, and DPO preference pairs for RL training.
 
+> **Origin**: This project was built in response to feedback on [hermes-agent PR #848](https://github.com/NousResearch/hermes-agent/pull/848), where the adversarial council concept was proposed as a core subsystem. The recommendation was to rebuild it as an external MCP server to avoid core tool injection, provider bypass, hidden LLM costs, and brittle parsing. Integration PR: [#1972](https://github.com/NousResearch/hermes-agent/pull/1972).
+
 ## Install
 
 ```bash
