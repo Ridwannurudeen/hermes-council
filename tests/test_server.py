@@ -1,6 +1,5 @@
 """Tests for FastMCP server tool handlers."""
 
-import asyncio
 import json
 from unittest.mock import AsyncMock, patch
 

@@ -3,13 +3,11 @@
 import os
 import tempfile
 
-import pytest
 import yaml
 
 from hermes_council.personas import (
     CouncilVerdict,
     DEFAULT_PERSONAS,
-    Persona,
     PersonaResponse,
     get_persona,
     list_personas,

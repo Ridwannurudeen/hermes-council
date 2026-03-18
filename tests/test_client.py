@@ -1,6 +1,5 @@
 """Tests for API client configuration and lazy singleton."""
 
-import pytest
 
 from hermes_council.client import get_api_config, get_client, get_model, get_timeout, reset_client, is_json_mode_supported, set_json_mode_supported
 

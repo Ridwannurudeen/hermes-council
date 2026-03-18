@@ -10,12 +10,11 @@ Usage:
 """
 
 import logging
-from typing import Dict, List, Optional
+from typing import List
 
 from hermes_council.deliberation import _extract_dpo_pairs, _run_council
 from hermes_council.personas import (
     CouncilVerdict,
-    PersonaResponse,
     load_custom_personas,
 )
 

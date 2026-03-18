@@ -8,7 +8,7 @@ from typing import Optional
 from mcp.server.fastmcp import FastMCP
 
 from hermes_council.deliberation import _run_council, _run_gate
-from hermes_council.personas import PersonaResponse, list_personas
+from hermes_council.personas import list_personas
 
 # All logging to stderr — stdout is the MCP JSON-RPC protocol
 logging.basicConfig(

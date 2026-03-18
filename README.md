@@ -1,3 +1,5 @@
+[![CI](https://github.com/Ridwannurudeen/hermes-council/actions/workflows/ci.yml/badge.svg)](https://github.com/Ridwannurudeen/hermes-council/actions/workflows/ci.yml)
+
 # hermes-council
 
 Adversarial multi-perspective council MCP server for [hermes-agent](https://github.com/NousResearch/hermes-agent).
