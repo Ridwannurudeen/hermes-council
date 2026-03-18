@@ -41,4 +41,20 @@ jobs:
         run: pip install -e ".[dev]"
 
       - name: Run tests with coverage
-        run: pytest tests/ -v --cov=hermes_council --cov-report=term-missing
+        run: pytest tests/ -v --cov=hermes_council --cov-report=term-missing --cov-report=json
+
+      - name: Update coverage badge
+        if: github.ref == 'refs/heads/master' && matrix.python-version == '3.13'
+        env:
+          GIST_TOKEN: ${{ secrets.GIST_TOKEN }}
+        run: |
+          COV=$(python -c "import json; print(int(json.load(open('coverage.json'))['totals']['percent_covered_display']))")
+          if [ "$COV" -ge 90 ]; then COLOR="brightgreen"
+          elif [ "$COV" -ge 80 ]; then COLOR="green"
+          elif [ "$COV" -ge 70 ]; then COLOR="yellowgreen"
+          elif [ "$COV" -ge 60 ]; then COLOR="yellow"
+          else COLOR="red"; fi
+          curl -s -X PATCH \
+            -H "Authorization: token $GIST_TOKEN" \
+            -d "{\"files\":{\"coverage.json\":{\"content\":\"{\\\"schemaVersion\\\":1,\\\"label\\\":\\\"coverage\\\",\\\"message\\\":\\\"${COV}%\\\",\\\"color\\\":\\\"${COLOR}\\\"}\"}}}" \
+            https://api.github.com/gists/316e2a72a4089fdb4fddc9980ed1c28b

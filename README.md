@@ -1,4 +1,5 @@
 [![CI](https://github.com/Ridwannurudeen/hermes-council/actions/workflows/ci.yml/badge.svg)](https://github.com/Ridwannurudeen/hermes-council/actions/workflows/ci.yml)
+[![Coverage](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/Ridwannurudeen/316e2a72a4089fdb4fddc9980ed1c28b/raw/coverage.json)](https://github.com/Ridwannurudeen/hermes-council/actions/workflows/ci.yml)
 
 # hermes-council
 
