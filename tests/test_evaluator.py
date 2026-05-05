@@ -106,3 +106,26 @@ class TestEvaluate:
             result = await ev.evaluate("content")
             assert isinstance(result, CouncilVerdict)
             assert result.confidence_score == 0
+
+
+class TestGate:
+    @pytest.mark.asyncio
+    async def test_gate_returns_structured_decision(self):
+        ev = CouncilEvaluator.__new__(CouncilEvaluator)
+        ev._personas = {}
+        ev.model = "test"
+
+        arbiter = PersonaResponse("arbiter", "Proceed after checks", 0.8, False, [], [])
+        arbiter.metadata = {
+            "verdict": "allow_with_conditions",
+            "blocking_risks": ["rollback missing"],
+            "required_checks": ["write rollback"],
+        }
+        verdict = CouncilVerdict("q", {"arbiter": arbiter}, "Proceed after checks", 80, False)
+
+        with patch("hermes_council.deliberation._run_gate", new_callable=AsyncMock, return_value=(verdict, {})):
+            result = await ev.gate("Deploy")
+            assert result["verdict"] == "allow_with_conditions"
+            assert result["allowed"] is True
+            assert result["can_proceed_now"] is False
+            assert result["required_checks"] == ["write rollback"]

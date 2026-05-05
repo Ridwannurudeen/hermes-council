@@ -112,10 +112,21 @@ class CouncilEvaluator:
         if verdict is None:
             return {"allowed": False, "confidence": 0, "reasoning": "Evaluation failed"}
 
+        arbiter = verdict.responses.get("arbiter")
+        metadata = arbiter.metadata if arbiter else {}
+        decision = (metadata.get("verdict") or "").strip().lower().replace("-", "_").replace(" ", "_")
+        if decision not in {"allow", "allow_with_conditions", "deny"}:
+            decision = "allow" if verdict.confidence_score >= 50 else "deny"
+
         return {
-            "allowed": verdict.confidence_score >= 50,
+            "verdict": decision,
+            "allowed": decision != "deny",
+            "can_proceed_now": decision == "allow",
+            "requires_conditions": decision == "allow_with_conditions",
             "confidence": verdict.confidence_score,
             "reasoning": verdict.arbiter_synthesis[:1000],
+            "blocking_risks": metadata.get("blocking_risks", []),
+            "required_checks": metadata.get("required_checks", []),
         }
 
     def extract_dpo_pairs(self, verdict: CouncilVerdict) -> List[dict]:

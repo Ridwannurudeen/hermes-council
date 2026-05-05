@@ -12,7 +12,7 @@ metadata:
 
 # Multi-Perspective Analysis
 
-Use the `council_query` tool to submit complex questions for adversarial deliberation by five personas, each representing a distinct intellectual tradition.
+Use the `council_query` tool to submit complex questions for adversarial deliberation by five personas, each representing a distinct intellectual tradition. Use `council_decision` when the user needs a concrete recommendation between options.
 
 ## When to Use
 
@@ -55,6 +55,26 @@ council_query(
 )
 ```
 
+### Cost Modes
+```
+council_query(question="Should we rewrite the storage layer?", mode="fast")
+council_query(question="Should we rewrite the storage layer?", mode="standard")
+council_query(question="Should we rewrite the storage layer?", mode="deep")
+```
+
+- `fast`: Skeptic + Arbiter for cheap pre-checks
+- `standard`: Full council for normal decisions
+- `deep`: Full council plus a second Arbiter pass for high-stakes decisions
+
+### Decision Review
+```
+council_decision(
+    options=["Ship now", "Delay for audit", "Cut scope and ship"],
+    decision_context="Hackathon demo is tomorrow; auth changes are unreviewed",
+    criteria=["demo impact", "safety", "reversibility"]
+)
+```
+
 ## Interpreting Results
 
 The council returns a structured verdict:
@@ -63,8 +83,10 @@ The council returns a structured verdict:
 - **conflict_detected**: True if personas strongly disagree (confidence spread > 30%)
 - **persona_responses**: Each persona's analysis with their individual confidence
 - **arbiter_synthesis**: The Arbiter's Bayesian synthesis with prior/posterior reasoning
+- **action_summary**: Recommendation, top risks, missing evidence, and next actions
 - **dpo_pairs**: Preference pairs for training (aligned vs overruled responses)
-- **sources**: Evidence URLs cited by personas
+- **sources**: Model-cited URLs
+- **verified_sources**: URLs actually retrieved by the council evidence layer
 
 ### Confidence Guidelines
 - **80-100**: Strong consensus, high-quality evidence

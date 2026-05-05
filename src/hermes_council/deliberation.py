@@ -18,6 +18,7 @@ from hermes_council.client import (
     is_json_mode_supported,
     set_json_mode_supported,
 )
+from hermes_council.evidence import EvidenceBundle, collect_evidence
 from hermes_council.parsing import parse_persona_response
 from hermes_council.personas import (
     CouncilVerdict,
@@ -38,6 +39,7 @@ async def llm_call(
     system_prompt: str,
     user_message: str,
     model: str = None,
+    max_tokens: int = 2000,
 ) -> Tuple[str, int]:
     """Make a single LLM call via AsyncOpenAI.
 
@@ -59,7 +61,7 @@ async def llm_call(
         "model": model,
         "messages": messages,
         "temperature": 0.7,
-        "max_tokens": 2000,
+        "max_tokens": max_tokens,
     }
 
     json_supported = is_json_mode_supported()
@@ -116,8 +118,24 @@ def _build_persona_response(
         data = json.loads(raw_text)
         if is_arbiter:
             parsed = ArbiterOutput.model_validate(data)
+            metadata = {
+                "prior": parsed.prior,
+                "posterior": parsed.posterior,
+                "evidence_updates": parsed.evidence_updates,
+                "risk_level": parsed.risk_level,
+                "consensus": parsed.consensus,
+                "recommendation": parsed.recommendation,
+                "top_risks": parsed.top_risks,
+                "missing_evidence": parsed.missing_evidence,
+                "next_actions": parsed.next_actions,
+                "verdict": parsed.verdict,
+                "blocking_risks": parsed.blocking_risks,
+                "required_checks": parsed.required_checks,
+                "safe_alternative": parsed.safe_alternative,
+            }
         else:
             parsed = PersonaOutput.model_validate(data)
+            metadata = {}
 
         return PersonaResponse(
             persona_name=persona_name,
@@ -126,6 +144,7 @@ def _build_persona_response(
             dissents=parsed.dissent,
             key_points=parsed.key_points,
             sources=parsed.sources,
+            metadata=metadata,
         )
     except (json.JSONDecodeError, Exception) as exc:
         logger.warning(
@@ -140,12 +159,24 @@ def _build_persona_response(
 # ---------------------------------------------------------------------------
 
 
+def _mode_personas(mode: str) -> Optional[List[str]]:
+    """Return persona order for a named council mode."""
+    if mode == "fast":
+        return ["skeptic", "arbiter"]
+    if mode in {"standard", "deep"}:
+        return None
+    return None
+
+
 async def _run_council(
     question: str,
     context: str = "",
     persona_names: Optional[List[str]] = None,
     evidence_search: bool = True,
     model: Optional[str] = None,
+    mode: str = "standard",
+    max_tokens: int = 2000,
+    max_evidence_sources: int = 5,
 ) -> Tuple[Optional[CouncilVerdict], dict]:
     """Run a full council deliberation.
 
@@ -156,10 +187,25 @@ async def _run_council(
     5. Aggregates sources, extracts DPO pairs, returns verdict + meta.
     """
     model_used = model or get_model()
+    mode = (mode or "standard").lower()
+    if get_client() is None:
+        return None, {
+            "error": (
+                "No API key configured. Set COUNCIL_API_KEY, OPENROUTER_API_KEY, "
+                "NOUS_API_KEY, or OPENAI_API_KEY."
+            ),
+            "calls_made": 0,
+            "model": model_used,
+            "total_tokens": 0,
+            "mode": mode,
+        }
 
     # Load and partition personas
     all_personas = load_custom_personas()
     personas = dict(all_personas)  # copy before mutating
+
+    if persona_names is None:
+        persona_names = _mode_personas(mode)
 
     # If specific personas requested, filter to those
     if persona_names is not None:
@@ -176,16 +222,28 @@ async def _run_council(
     user_msg = question
     if context:
         user_msg += f"\n\nContext: {context}"
+
+    evidence_bundle = EvidenceBundle([], [])
     if evidence_search:
-        user_msg += ("\n\nNote: You may use web search to find supporting "
-                     "evidence for your analysis.")
+        evidence_bundle = collect_evidence(
+            question,
+            context,
+            enabled=True,
+            max_sources=max_evidence_sources,
+        )
+        user_msg += f"\n\n{evidence_bundle.to_prompt_block()}"
 
     # Run deliberators in parallel
     total_tokens = 0
     calls_made = 0
 
     async def _call_persona(name, persona):
-        return name, await llm_call(persona.system_prompt, user_msg, model=model_used)
+        return name, await llm_call(
+            persona.system_prompt,
+            user_msg,
+            model=model_used,
+            max_tokens=max_tokens,
+        )
 
     tasks = [
         _call_persona(name, persona)
@@ -242,12 +300,34 @@ async def _run_council(
 
     # Run Arbiter
     arbiter_raw, arbiter_tokens = await llm_call(
-        arbiter.system_prompt, arbiter_user_msg, model=model_used
+        arbiter.system_prompt,
+        arbiter_user_msg,
+        model=model_used,
+        max_tokens=max_tokens,
     )
     total_tokens += arbiter_tokens
     calls_made += 1
 
     arbiter_response = _build_persona_response("arbiter", arbiter_raw, is_arbiter=True)
+
+    if mode == "deep":
+        second_pass_msg = (
+            f"Question: {question}\n\n"
+            "Review your previous synthesis for overconfidence, missing evidence, "
+            "and unresolved dissent. Produce the final JSON verdict.\n\n"
+            f"Previous synthesis:\n{arbiter_response.content[:3000]}\n"
+        )
+        if evidence_bundle.sources:
+            second_pass_msg += f"\n\n{evidence_bundle.to_prompt_block()}"
+        arbiter_raw, arbiter_tokens = await llm_call(
+            arbiter.system_prompt,
+            second_pass_msg,
+            model=model_used,
+            max_tokens=max_tokens,
+        )
+        total_tokens += arbiter_tokens
+        calls_made += 1
+        arbiter_response = _build_persona_response("arbiter", arbiter_raw, is_arbiter=True)
 
     # Aggregate all responses (deliberators + arbiter)
     all_responses = {**deliberator_responses, "arbiter": arbiter_response}
@@ -272,12 +352,19 @@ async def _run_council(
         conflict_detected=conflict_detected,
         dpo_pairs=dpo_pairs,
         sources=unique_sources,
+        verified_sources=[source.to_dict() for source in evidence_bundle.verified_sources],
     )
 
     meta = {
         "calls_made": calls_made,
         "model": model_used,
         "total_tokens": total_tokens,
+        "mode": mode,
+        "max_tokens": max_tokens,
+        "evidence_enabled": evidence_search,
+        "evidence_sources": [source.to_dict() for source in evidence_bundle.sources],
+        "verified_source_count": len(evidence_bundle.verified_sources),
+        "evidence_errors": evidence_bundle.errors,
     }
 
     return verdict, meta
@@ -367,7 +454,10 @@ async def _run_gate(
     Used for quick go/no-go decisions before executing an action.
     """
     gate_question = (
-        f"Should this action be allowed?\n\n"
+        "Preflight this action. The Arbiter must set verdict to one of "
+        "allow, allow_with_conditions, or deny. Use deny for unresolved "
+        "blocking risks. Use allow_with_conditions when specific checks are "
+        "required before proceeding.\n\n"
         f"Action: {action}\n"
         f"Risk level: {risk_level}"
     )
@@ -378,4 +468,5 @@ async def _run_gate(
         gate_question,
         persona_names=["skeptic", "oracle", "arbiter"],
         evidence_search=False,
+        mode="fast",
     )

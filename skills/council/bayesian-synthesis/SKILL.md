@@ -54,6 +54,17 @@ council_evaluate(
 )
 ```
 
+### Claim Review With Evidence
+```
+council_review_claim(
+    claim="This library supports JSON mode on every OpenAI-compatible provider",
+    context="We plan to rely on response_format for production parsing",
+    evidence_search=true
+)
+```
+
+Use `verified_sources` for retrieved evidence. Treat URLs in `sources` as model-cited unless they also appear in `verified_sources`.
+
 ## Interpreting Bayesian Updates
 
 The Arbiter reports updates like:

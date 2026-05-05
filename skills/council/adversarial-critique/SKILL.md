@@ -12,7 +12,7 @@ metadata:
 
 # Adversarial Critique
 
-Use `council_evaluate` and `council_gate` to stress-test your work before it goes live. The council's adversarial structure surfaces blind spots that self-review misses.
+Use `council_evaluate`, `council_review_plan`, `council_review_diff`, and `council_preflight` to stress-test work before it goes live. The council's adversarial structure surfaces blind spots that self-review misses.
 
 ## When to Use
 
@@ -44,12 +44,40 @@ council_gate(
 )
 ```
 
-Returns `allowed` (bool) + reasoning. Uses abbreviated council (Skeptic + Oracle + Arbiter) for speed.
+Returns `verdict` (`allow`, `allow_with_conditions`, or `deny`), blocking risks, required checks, safe alternatives, and reasoning. Uses abbreviated council (Skeptic + Oracle + Arbiter) for speed.
 
 **Risk level thresholds**:
 - `low`: Allowed if confidence >= 30%
 - `medium`: Allowed if confidence >= 50%
 - `high`: Allowed if confidence >= 70%
+
+### council_review_plan -- Plan Review
+```
+council_review_plan(
+    plan="[implementation plan]",
+    objective="Ship the feature without breaking existing integrations",
+    risk_level="medium"
+)
+```
+
+### council_review_diff -- Diff Review
+```
+council_review_diff(
+    diff="[git diff]",
+    objective="Review for bugs, security regressions, and missing tests",
+    files=["src/auth.py", "tests/test_auth.py"]
+)
+```
+
+### council_preflight -- Action Gate
+```
+council_preflight(
+    action="Run production migration",
+    risk_level="high",
+    context="Migration backfills NULL emails before adding NOT NULL",
+    checks=["backup exists", "rollback SQL written"]
+)
+```
 
 ## Workflow: Evaluate Then Improve
 

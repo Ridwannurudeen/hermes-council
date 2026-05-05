@@ -23,6 +23,14 @@ class ArbiterOutput(PersonaOutput):
     evidence_updates: list[str] = []
     risk_level: str = "medium"
     consensus: str = ""
+    recommendation: str = ""
+    top_risks: list[str] = []
+    missing_evidence: list[str] = []
+    next_actions: list[str] = []
+    verdict: str = "not_applicable"
+    blocking_risks: list[str] = []
+    required_checks: list[str] = []
+    safe_alternative: str = ""
 
 
 class DPOPair(BaseModel):

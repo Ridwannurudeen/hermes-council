@@ -43,6 +43,12 @@ hermes-council = "hermes_council.cli:main"
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.data-files]
+"share/hermes-council/skills/council" = ["skills/council/DESCRIPTION.md"]
+"share/hermes-council/skills/council/adversarial-critique" = ["skills/council/adversarial-critique/SKILL.md"]
+"share/hermes-council/skills/council/bayesian-synthesis" = ["skills/council/bayesian-synthesis/SKILL.md"]
+"share/hermes-council/skills/council/multi-perspective-analysis" = ["skills/council/multi-perspective-analysis/SKILL.md"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"

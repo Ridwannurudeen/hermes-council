@@ -12,7 +12,13 @@ from hermes_council.deliberation import (
     llm_call,
     _build_persona_response,
 )
+from hermes_council.evidence import EvidenceBundle, EvidenceSource
 from hermes_council.personas import CouncilVerdict, PersonaResponse
+
+
+@pytest.fixture(autouse=True)
+def configured_client(monkeypatch):
+    monkeypatch.setattr("hermes_council.deliberation.get_client", lambda: object())
 
 
 def _mock_persona_json(confidence=0.8, dissent=False):
@@ -89,9 +95,19 @@ class TestBuildPersonaResponse:
 
 class TestRunCouncil:
     @pytest.mark.asyncio
+    async def test_missing_api_key_fails_before_evidence(self, monkeypatch):
+        monkeypatch.setattr("hermes_council.deliberation.get_client", lambda: None)
+
+        with patch("hermes_council.deliberation.collect_evidence") as evidence:
+            verdict, meta = await _run_council("Is X true?")
+            assert verdict is None
+            assert "No API key" in meta["error"]
+            evidence.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_full_deliberation(self):
         call_count = 0
-        async def mock_llm(system, user, model=None):
+        async def mock_llm(system, user, model=None, max_tokens=2000):
             nonlocal call_count
             call_count += 1
             if call_count <= 4:
@@ -99,7 +115,7 @@ class TestRunCouncil:
             return _mock_arbiter_json(), 200
 
         with patch("hermes_council.deliberation.llm_call", side_effect=mock_llm):
-            verdict, meta = await _run_council("Is X true?")
+            verdict, meta = await _run_council("Is X true?", evidence_search=False)
             assert isinstance(verdict, CouncilVerdict)
             assert verdict.confidence_score > 0
             assert meta["calls_made"] == 5
@@ -108,7 +124,7 @@ class TestRunCouncil:
     @pytest.mark.asyncio
     async def test_persona_subset(self):
         call_count = 0
-        async def mock_llm(system, user, model=None):
+        async def mock_llm(system, user, model=None, max_tokens=2000):
             nonlocal call_count
             call_count += 1
             if call_count <= 1:
@@ -116,13 +132,13 @@ class TestRunCouncil:
             return _mock_arbiter_json(), 200
 
         with patch("hermes_council.deliberation.llm_call", side_effect=mock_llm):
-            verdict, meta = await _run_council("Test?", persona_names=["skeptic", "arbiter"])
+            verdict, meta = await _run_council("Test?", persona_names=["skeptic", "arbiter"], evidence_search=False)
             assert meta["calls_made"] == 2
 
     @pytest.mark.asyncio
     async def test_one_deliberator_fails(self):
         call_count = 0
-        async def mock_llm(system, user, model=None):
+        async def mock_llm(system, user, model=None, max_tokens=2000):
             nonlocal call_count
             call_count += 1
             if call_count == 1:
@@ -132,14 +148,14 @@ class TestRunCouncil:
             return _mock_arbiter_json(), 200
 
         with patch("hermes_council.deliberation.llm_call", side_effect=mock_llm):
-            verdict, meta = await _run_council("Test?")
+            verdict, meta = await _run_council("Test?", evidence_search=False)
             assert isinstance(verdict, CouncilVerdict)
             assert len(verdict.responses) >= 3
 
     @pytest.mark.asyncio
     async def test_all_deliberators_fail(self):
         call_count = 0
-        async def mock_llm(system, user, model=None):
+        async def mock_llm(system, user, model=None, max_tokens=2000):
             nonlocal call_count
             call_count += 1
             if call_count <= 4:
@@ -147,14 +163,14 @@ class TestRunCouncil:
             return _mock_arbiter_json(), 200
 
         with patch("hermes_council.deliberation.llm_call", side_effect=mock_llm):
-            verdict, meta = await _run_council("Test?")
+            verdict, meta = await _run_council("Test?", evidence_search=False)
             assert verdict is None
             assert "error" in meta
 
     @pytest.mark.asyncio
     async def test_conflict_detection(self):
         call_count = 0
-        async def mock_llm(system, user, model=None):
+        async def mock_llm(system, user, model=None, max_tokens=2000):
             nonlocal call_count
             call_count += 1
             if call_count == 1:
@@ -166,30 +182,80 @@ class TestRunCouncil:
             return _mock_arbiter_json(), 200
 
         with patch("hermes_council.deliberation.llm_call", side_effect=mock_llm):
-            verdict, meta = await _run_council("Controversial?")
+            verdict, meta = await _run_council("Controversial?", evidence_search=False)
             assert verdict.conflict_detected is True
 
     @pytest.mark.asyncio
-    async def test_evidence_search_flag(self):
+    async def test_evidence_search_injects_retrieved_sources(self):
         captured_messages = []
-        async def mock_llm(system, user, model=None):
+        evidence = EvidenceBundle(
+            [
+                EvidenceSource(
+                    title="Example evidence",
+                    url="https://example.com/evidence",
+                    snippet="Verified source snippet.",
+                    source_type="search_result",
+                    verified=True,
+                )
+            ],
+            [],
+        )
+
+        async def mock_llm(system, user, model=None, max_tokens=2000):
             captured_messages.append(user)
             return _mock_persona_json(), 100
 
-        with patch("hermes_council.deliberation.llm_call", side_effect=mock_llm):
+        with (
+            patch("hermes_council.deliberation.llm_call", side_effect=mock_llm),
+            patch("hermes_council.deliberation.collect_evidence", return_value=evidence),
+        ):
             await _run_council("Test?", evidence_search=True)
-            assert any("web search" in msg for msg in captured_messages)
+            assert any("Evidence retrieved by hermes-council" in msg for msg in captured_messages)
+            assert any("https://example.com/evidence" in msg for msg in captured_messages)
 
             captured_messages.clear()
             await _run_council("Test?", evidence_search=False)
-            assert not any("web search" in msg for msg in captured_messages)
+            assert not any("Evidence retrieved by hermes-council" in msg for msg in captured_messages)
+
+    @pytest.mark.asyncio
+    async def test_fast_mode_uses_skeptic_and_arbiter(self):
+        call_count = 0
+
+        async def mock_llm(system, user, model=None, max_tokens=2000):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return _mock_persona_json(), 100
+            return _mock_arbiter_json(), 200
+
+        with patch("hermes_council.deliberation.llm_call", side_effect=mock_llm):
+            verdict, meta = await _run_council("Test?", evidence_search=False, mode="fast")
+            assert isinstance(verdict, CouncilVerdict)
+            assert meta["calls_made"] == 2
+            assert set(verdict.responses) == {"skeptic", "arbiter"}
+
+    @pytest.mark.asyncio
+    async def test_deep_mode_runs_second_arbiter_pass(self):
+        call_count = 0
+
+        async def mock_llm(system, user, model=None, max_tokens=2000):
+            nonlocal call_count
+            call_count += 1
+            if call_count <= 4:
+                return _mock_persona_json(), 100
+            return _mock_arbiter_json(confidence=0.8), 200
+
+        with patch("hermes_council.deliberation.llm_call", side_effect=mock_llm):
+            verdict, meta = await _run_council("Test?", evidence_search=False, mode="deep")
+            assert isinstance(verdict, CouncilVerdict)
+            assert meta["calls_made"] == 6
 
 
 class TestRunGate:
     @pytest.mark.asyncio
     async def test_gate_uses_three_personas(self):
         call_count = 0
-        async def mock_llm(system, user, model=None):
+        async def mock_llm(system, user, model=None, max_tokens=2000):
             nonlocal call_count
             call_count += 1
             if call_count <= 2:

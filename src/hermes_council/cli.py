@@ -3,15 +3,23 @@
 import argparse
 import shutil
 import sys
+import sysconfig
 from pathlib import Path
 
 
 def _get_skills_source() -> Path:
     """Locate bundled skills directory."""
     package_dir = Path(__file__).resolve().parent
-    # Skills are at repo_root/skills/council/ relative to src/hermes_council/
-    skills_dir = package_dir.parent.parent / "skills" / "council"
-    return skills_dir
+    candidates = [
+        # Editable checkout: repo_root/skills/council.
+        package_dir.parent.parent / "skills" / "council",
+        # Wheel install: setuptools data-files under the interpreter data path.
+        Path(sysconfig.get_path("data")) / "share" / "hermes-council" / "skills" / "council",
+    ]
+    for skills_dir in candidates:
+        if skills_dir.exists():
+            return skills_dir
+    return candidates[0]
 
 
 def install_skills(force: bool = False):

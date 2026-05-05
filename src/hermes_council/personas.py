@@ -39,7 +39,15 @@ _ARBITER_JSON_INSTRUCTIONS = (
     '"posterior": "your updated belief after evidence", '
     '"evidence_updates": ["Advocate: +X% because...", "Skeptic: -Y% because..."], '
     '"risk_level": "low|medium|high|critical", '
-    '"consensus": "clear recommendation in 2-3 sentences"}\n'
+    '"consensus": "clear recommendation in 2-3 sentences", '
+    '"recommendation": "one action-oriented sentence", '
+    '"top_risks": ["risk 1", "risk 2"], '
+    '"missing_evidence": ["gap 1", "gap 2"], '
+    '"next_actions": ["step 1", "step 2"], '
+    '"verdict": "allow|allow_with_conditions|deny|not_applicable", '
+    '"blocking_risks": ["blocking risk 1"], '
+    '"required_checks": ["check 1"], '
+    '"safe_alternative": "safer path if any"}\n'
     'Do not include any text outside the JSON object.'
 )
 
@@ -69,6 +77,7 @@ class PersonaResponse:
     dissents: bool
     key_points: List[str] = field(default_factory=list)
     sources: List[str] = field(default_factory=list)
+    metadata: Dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -82,6 +91,7 @@ class CouncilVerdict:
     conflict_detected: bool
     dpo_pairs: List[Any] = field(default_factory=list)
     sources: List[str] = field(default_factory=list)
+    verified_sources: List[Dict[str, Any]] = field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
