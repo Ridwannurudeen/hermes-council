@@ -5,9 +5,13 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+
+_TOOL_FILENAME_RE = re.compile(r"[^A-Za-z0-9_-]")
 
 
 def audit_enabled() -> bool:
@@ -39,7 +43,8 @@ def write_audit_record(tool: str, request: dict[str, Any], response: dict[str, A
         "request": request,
         "response": response,
     }
-    filename = f"{now.strftime('%Y%m%dT%H%M%S%fZ')}-{tool}.json"
+    safe_tool = _TOOL_FILENAME_RE.sub("_", tool) or "unknown"
+    filename = f"{now.strftime('%Y%m%dT%H%M%S%fZ')}-{safe_tool}.json"
     path = audit_dir / filename
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     return str(path)

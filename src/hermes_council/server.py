@@ -227,13 +227,14 @@ async def council_evaluate(
     return json.dumps(result, ensure_ascii=False)
 
 
-@mcp.tool()
-async def council_gate(
+async def _gate_response(
+    *,
+    tool_name: str,
+    request: dict,
     action: str,
-    risk_level: str = "medium",
-    context: str = "",
+    risk_level: str,
+    context: str,
 ) -> str:
-    """Quick safety review before high-stakes actions. Returns allow/conditional/deny with reasoning."""
     if not action.strip():
         return json.dumps({"success": False, "error": "action is required"})
 
@@ -247,12 +248,24 @@ async def council_gate(
         return json.dumps({"success": False, **meta})
 
     result = _gate_result(verdict, meta, risk_level)
-    _record_audit(
-        "council_gate",
-        {"action": action, "risk_level": risk_level, "context": context},
-        result,
-    )
+    _record_audit(tool_name, request, result)
     return json.dumps(result, ensure_ascii=False)
+
+
+@mcp.tool()
+async def council_gate(
+    action: str,
+    risk_level: str = "medium",
+    context: str = "",
+) -> str:
+    """Quick safety review before high-stakes actions. Returns allow/conditional/deny with reasoning."""
+    return await _gate_response(
+        tool_name="council_gate",
+        request={"action": action, "risk_level": risk_level, "context": context},
+        action=action,
+        risk_level=risk_level,
+        context=context,
+    )
 
 
 @mcp.tool()
@@ -263,9 +276,23 @@ async def council_preflight(
     checks: Optional[list[str]] = None,
 ) -> str:
     """Preflight a risky action and return a structured allow/conditional/deny verdict."""
+    effective_context = context
     if checks:
-        context = f"{context}\nRequired checks already considered: {', '.join(checks)}".strip()
-    return await council_gate(action=action, risk_level=risk_level, context=context)
+        effective_context = (
+            f"{context}\nRequired checks already considered: {', '.join(checks)}".strip()
+        )
+    return await _gate_response(
+        tool_name="council_preflight",
+        request={
+            "action": action,
+            "risk_level": risk_level,
+            "context": context,
+            "checks": checks,
+        },
+        action=action,
+        risk_level=risk_level,
+        context=effective_context,
+    )
 
 
 @mcp.tool()

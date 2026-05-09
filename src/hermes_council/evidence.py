@@ -3,18 +3,22 @@
 from __future__ import annotations
 
 import html
+import http.client
 import ipaddress
 import os
 import re
 import socket
+import ssl
 import urllib.parse
-import urllib.request
 from dataclasses import asdict, dataclass
 from html.parser import HTMLParser
 from typing import Iterable
 
 
 _URL_RE = re.compile(r"https?://[^\s\)\]\"'<>]+")
+_MAX_REDIRECTS = 5
+_MAX_BODY_BYTES = 128_000
+_USER_AGENT = "hermes-council/0.1 (+https://github.com/Ridwannurudeen/hermes-council)"
 
 
 @dataclass(frozen=True)
@@ -108,20 +112,25 @@ def _strip_tags(value: str) -> str:
     return re.sub(r"\s+", " ", value).strip()
 
 
-def _read_url(url: str, timeout: float) -> str:
-    request = urllib.request.Request(
-        url,
-        headers={
-            "User-Agent": "hermes-council/0.1 (+https://github.com/Ridwannurudeen/hermes-council)",
-        },
+def _is_non_public(address: ipaddress._BaseAddress) -> bool:
+    return (
+        address.is_private
+        or address.is_loopback
+        or address.is_link_local
+        or address.is_multicast
+        or address.is_reserved
+        or address.is_unspecified
     )
-    with urllib.request.urlopen(request, timeout=timeout) as response:
-        charset = response.headers.get_content_charset() or "utf-8"
-        raw = response.read(128_000)
-    return raw.decode(charset, errors="replace")
 
 
-def _validate_public_url(url: str) -> None:
+def _validate_public_url(url: str) -> tuple[str, str, int, str]:
+    """Validate scheme + host shape. Return (scheme, host, port, path_with_query).
+
+    Rejects literal private IPs and obfuscated numeric forms (decimal-encoded
+    IPv4, 0x-prefixed hex, all-numeric-with-dots) before any network call.
+    Hostname-to-IP validation happens at connect time in the connection
+    classes below — this function alone is not sufficient to prevent SSRF.
+    """
     parsed = urllib.parse.urlparse(url)
     if parsed.scheme not in {"http", "https"}:
         raise ValueError("only http and https URLs are supported")
@@ -135,17 +144,119 @@ def _validate_public_url(url: str) -> None:
     try:
         address = ipaddress.ip_address(host)
     except ValueError:
-        return
+        if host.startswith("0x"):
+            raise ValueError("obfuscated IP encoding is not allowed") from None
+        if host and all(c.isdigit() or c == "." for c in host):
+            raise ValueError("malformed numeric host is not allowed") from None
+    else:
+        if _is_non_public(address):
+            raise ValueError("private or non-routable IP addresses are not allowed")
 
-    if (
-        address.is_private
-        or address.is_loopback
-        or address.is_link_local
-        or address.is_multicast
-        or address.is_reserved
-        or address.is_unspecified
-    ):
-        raise ValueError("private or non-routable IP addresses are not allowed")
+    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    path = parsed.path or "/"
+    if parsed.query:
+        path = f"{path}?{parsed.query}"
+    return parsed.scheme, host, port, path
+
+
+def _resolve_public_addresses(host: str) -> list[tuple[int, str]]:
+    """Resolve host and reject if any returned address is non-public.
+
+    Returns list of (family, ip) for the resolved addresses. Raises ValueError
+    if resolution fails or any address is private/loopback/link-local/etc.
+    Strict-on-any-private semantics defeat DNS rebinding round-robin tricks.
+    """
+    try:
+        infos = socket.getaddrinfo(host, None, type=socket.SOCK_STREAM)
+    except socket.gaierror as exc:
+        raise ValueError(f"DNS resolution failed: {exc}") from exc
+
+    addresses: list[tuple[int, str]] = []
+    for family, _, _, _, sockaddr in infos:
+        ip = sockaddr[0]
+        try:
+            parsed_ip = ipaddress.ip_address(ip)
+        except ValueError:
+            raise ValueError(f"resolver returned non-IP address: {ip}") from None
+        if _is_non_public(parsed_ip):
+            raise ValueError(f"host resolves to non-public address: {ip}")
+        addresses.append((family, ip))
+
+    if not addresses:
+        raise ValueError("DNS returned no addresses")
+    return addresses
+
+
+class _ValidatedHTTPSConnection(http.client.HTTPSConnection):
+    """HTTPSConnection that pins the connect target to a validated public IP."""
+
+    def connect(self) -> None:
+        family, ip = _resolve_public_addresses(self.host)[0]
+        sock = socket.create_connection(
+            (ip, self.port),
+            timeout=self.timeout,
+            source_address=self.source_address,
+        )
+        self.sock = self._context.wrap_socket(sock, server_hostname=self.host)
+
+
+class _ValidatedHTTPConnection(http.client.HTTPConnection):
+    """HTTPConnection that pins the connect target to a validated public IP."""
+
+    def connect(self) -> None:
+        family, ip = _resolve_public_addresses(self.host)[0]
+        self.sock = socket.create_connection(
+            (ip, self.port),
+            timeout=self.timeout,
+            source_address=self.source_address,
+        )
+
+
+def _read_url(url: str, timeout: float) -> str:
+    """Fetch a URL, following redirects with per-hop validation.
+
+    Each hop revalidates the URL against `_validate_public_url` and forces
+    DNS resolution through `_resolve_public_addresses`, so a 30x to a
+    private IP cannot bypass the SSRF guard. Caps at `_MAX_REDIRECTS`.
+    """
+    visited: set[str] = set()
+    current = url
+
+    for _ in range(_MAX_REDIRECTS + 1):
+        if current in visited:
+            raise ValueError("redirect loop detected")
+        visited.add(current)
+
+        scheme, host, port, path = _validate_public_url(current)
+        conn_cls = _ValidatedHTTPSConnection if scheme == "https" else _ValidatedHTTPConnection
+        if scheme == "https":
+            conn = conn_cls(host, port, timeout=timeout, context=ssl.create_default_context())
+        else:
+            conn = conn_cls(host, port, timeout=timeout)
+
+        try:
+            conn.request("GET", path, headers={"User-Agent": _USER_AGENT})
+            response = conn.getresponse()
+
+            if response.status in {301, 302, 303, 307, 308}:
+                location = response.headers.get("Location")
+                if not location:
+                    raise ValueError(
+                        f"redirect status {response.status} with no Location header"
+                    )
+                current = urllib.parse.urljoin(current, location)
+                continue
+
+            if response.status >= 400:
+                raise OSError(f"HTTP {response.status}")
+
+            charset = response.headers.get_content_charset() or "utf-8"
+            raw = response.read(_MAX_BODY_BYTES)
+            return raw.decode(charset, errors="replace")
+        finally:
+            conn.close()
+
+    raise ValueError("too many redirects")
 
 
 def _source_from_html(url: str, raw_html: str, source_type: str) -> EvidenceSource:
