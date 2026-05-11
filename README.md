@@ -101,6 +101,15 @@ mcp_servers:
 form is recommended because it works even when the Python user scripts directory
 is not on `PATH`.
 
+You can also wire the server up interactively with Hermes Agent's own CLI:
+
+```bash
+hermes mcp add
+```
+
+`hermes mcp add/list/remove/test` writes to the same `mcp_servers` key in
+`~/.hermes/config.yaml`, so either path produces an equivalent config.
+
 Set one provider key:
 
 ```bash
@@ -379,8 +388,12 @@ where the adversarial council concept was proposed as a core subsystem. The
 recommendation was to rebuild it as an external MCP server to avoid core tool
 injection, provider bypass, hidden LLM costs, and brittle parsing.
 
-Related integration PR:
-[NousResearch/hermes-agent#1972](https://github.com/NousResearch/hermes-agent/pull/1972).
+A follow-up integration PR proposing a commented config stub inside hermes-agent
+([NousResearch/hermes-agent#1972](https://github.com/NousResearch/hermes-agent/pull/1972))
+was **closed on 2026-05-11** — the maintainers do not bundle third-party MCP
+server references in `cli-config.yaml.example` or `optional-skills/` to avoid
+endorsing one community server over others. Install standalone via the
+[Quickstart](#quickstart) above; the server is designed to run that way.
 
 ## Contributing
 
